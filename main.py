@@ -2,8 +2,8 @@ import csv
 
 from itertools import chain
 
-from bilibili import Bilibili
-from model import Space, Card
+from bana.bilibili import Bilibili
+from bana.model import Space, Card
 
 
 class CleanOutput(object):
