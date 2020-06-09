@@ -1,11 +1,9 @@
 import json
-import csv
 import os
 import random
 
 from functools import reduce
 from typing import List
-from itertools import chain
 
 from bana.model import Space, Card
 from bana.network import get as network_get
@@ -45,16 +43,33 @@ class Bilibili(object):
         data = json.loads(self.get(url, type="prize_users"))
         return list(map(lambda x: x["uid"], reduce(lambda x, y: x + y, data["data"]["lottery_result"].values())))
 
-    def get_user_space(self, uid: int = None, offset: int = 0) -> Space:
-        if not uid or not self.user_id:
-            raise ValueError("uid or self.user_id must be provided")
+    def get_user_space(self, uid: int, offset: int = 0) -> Space:
         # 如果没有提供uid, 则获取up主的id
-        uid = uid or self.user_id
         url = f"https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/space_history?host_uid={uid}&offset_dynamic_id={offset}"
-        data = convert_json(self.get(url, type="user_space"))["data"]
-        if "cards" not in data:
+        data = convert_json(self.get(url, type="user_space"))
+        if "cards" not in data["data"]:
             return None
-        return Space.from_json(data["cards"])
+        return Space.from_json(data["data"])
+
+    def find_user_dynamic(self, uid: int, origin: Card = None) -> Card:
+        """
+            Find all of user's post
+            if origin provided return the post with same origin
+        """
+        offset = 0
+        while True:
+            space = self.get_user_space(uid, offset)
+            if not space:
+                break
+            for card in space.cards:
+                if origin and card.origin == origin:
+                    yield card
+                    break
+                else:
+                    yield card
+            if not space.has_more:
+                break
+            offset = space.offset
 
     def get_all_repost_user(self, offset: str = None, _rand: bool = False):
         if not self.dynamic_id:
@@ -84,46 +99,3 @@ class Bilibili(object):
         page = data["page"]
         if page["num"] * page["size"] < page["count"] and pn < 600:
             yield from self.get_all_reply_user(pn + 1)
-
-    def find_origin_post(self, space: Space) -> Card:
-        if not space:
-            raise ValueError("history not exists")
-        if not self.post_id:
-            raise ValueError("post_id is required")
-        for history in sorted(space.cards, key=lambda x: x.timestamp, reverse=True):
-            if history.origin and history.origin.id == self.post_id:
-                return history
-        """
-        如果没有找到抽奖动态, 转至下一页
-        """
-        return self.find_origin_post(self.get_user_space(space.user.uid, offset=space.offset))
-
-    def write_prize_users(self, ids: List[int]):
-        with open('./output/prize_users.csv', 'w', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile, delimiter=",")
-            writer.writerow(self.header)
-            for space in map(lambda uid: self.get_user_space(uid=uid), ids):
-                prized_post = self.find_origin_post(space)
-                user = space.user
-                time_after = prized_post.timestamp - prized_post.origin.timestamp
-                writer.writerow([user.uid, user.level, user.vip_type, user.vip_status, time_after])
-
-    def write_all_users(self):
-        with open('./output/all_other_users.csv', 'w', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile, delimiter=",")
-            writer.writerow(self.header)
-            prized_post = next(self.get_all_repost_user()).origin
-            for card in chain(self.get_all_repost_user(), self.get_all_reply_user()):
-                user = card.user
-                time_after = card.timestamp - prized_post.timestamp
-                writer.writerow([user.uid, user.level, user.vip_type, user.vip_status, time_after])
-
-    def run(self):
-        # ids = self.get_all_prize_user_ids()
-        # self.write_prize_users(ids)
-        self.write_all_users()
-
-
-if __name__ == "__main__":
-    bilibili = Bilibili(75347916, 254463269, 394000250829625700)
-    bilibili.run()

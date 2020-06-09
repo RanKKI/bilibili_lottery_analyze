@@ -23,50 +23,23 @@ class User(object):
 
     @classmethod
     def from_user_profile(cls, profile: dict):
-        try:
-            return cls(**{
-                "uid": profile["info"]["uid"],
-                "name": profile["info"]["uname"],
-                "level": profile["level_info"]["current_level"],
-                "vip_type": profile["vip"]["vipType"],
-                "vip_status": profile["vip"]["vipStatus"]
-            })
-        except KeyError:
-            return None
-
-    @classmethod
-    def from_space_history(cls, data: dict):
-        if "info" not in data:
-            profile = data.get("desc", {}).get("user_profile")
-        else:
-            profile = data
         if not profile:
-            return None
-        return cls(**{
-            "uid": profile["info"]["uid"],
-            "name": profile["info"]["uname"],
-            "level": profile["level_info"]["current_level"],
-            "vip_type": profile["vip"]["vipType"],
-            "vip_status": profile["vip"]["vipStatus"]
-        })
-
-    @classmethod
-    def from_space_histories(cls, data: List[dict]):
-        return cls.from_space_history(data[0])
-
-    @classmethod
-    def from_repost(cls, data: dict):
-        pass
+            raise ValueError("Profile is required")
+        return cls(
+            uid=profile["info"]["uid"],
+            name=profile["info"]["uname"],
+            level=profile["level_info"]["current_level"],
+            vip_type=profile["vip"]["vipType"],
+            vip_status=profile["vip"]["vipStatus"]
+        )
 
     @classmethod
     def from_reply(cls, data: dict):
-        return cls(**{
-            "uid": data.get("mid"),
-            "name": data.get("uname"),
-            "level": data["level_info"]["current_level"],
-            "vip_type": data["vip"]["vipType"],
-            "vip_status": data["vip"]["vipStatus"]
-        })
+        data["info"] = {
+            "uid": data.pop("mid"),
+            "uname": data.pop("uname")
+        }
+        return cls.from_user_profile(data)
 
 
 class Card(object):
@@ -86,18 +59,22 @@ class Card(object):
 
         self.origin = origin
 
-        self.id = id
-        self.dynamic_id = dynamic_id  # 如果是转发
-        self.rp_id = rp_id  # 如果是回复
+        self.id = id  # 动态 post id
+        self.dynamic_id = dynamic_id  # 动态的dynamic_id
+        self.rp_id = rp_id  # 回复
 
         # 抽奖相关
         self.lott_id = lott_id
 
+    def __eq__(self, other):
+        if not isinstance(other, Card):
+            return False
+        return self.dynamic_id == other.dynamic_id
+
     @classmethod
     def from_json(cls, root: dict, is_origin: bool = False):
         if not root:
-            return None
-
+            raise ValueError("root is not none")
         desc = root.get("desc")
         card = root.get("card")
 
@@ -125,7 +102,7 @@ class Card(object):
         if "origin" in card and not is_origin:
             origin_object = cls.from_json(root, is_origin=True)
 
-        content = item.get("content", item.get("description"))
+        content = item.get("content", item.get("description", ""))
         timestamp = item.get("timestamp", item.get("upload_time"))
 
         try:
@@ -145,22 +122,24 @@ class Card(object):
 
     @classmethod
     def from_reply_json(cls, data: dict):
-        return cls(**{
-            "content": data.get("content").get("message"),
-            "timestamp": data.get("ctime"),
-            "id": data.get("rpid"),
-            "user": User.from_reply(data.get("member"))
-        })
+        return cls(
+            content=data.get("content").get("message"),
+            timestamp=data.get("ctime"),
+            rp_id=data.get("rpid"),
+            user=User.from_reply(data.get("member"))
+        )
 
 
 class Space(object):
 
     def __init__(self,
                  user: User,
-                 cards: List[Card]):
+                 cards: List[Card],
+                 has_more: bool = False):
         self.user = user
         self.cards = cards
         self.offset = 0
+        self.has_more = has_more
         if len(cards) > 0:
             self.offset = cards[-1].dynamic_id
 
@@ -170,6 +149,7 @@ class Space(object):
     @classmethod
     def from_json(cls, data: dict):
         return cls(
-            user=User.from_space_histories(data),
-            cards=list(filter(lambda x: x, map(lambda x: Card.from_json(x), data)))
+            user=User.from_user_profile(data["cards"][0].get("desc", {}).get("user_profile")),
+            cards=list(filter(lambda x: x, map(lambda x: Card.from_json(x), data["cards"]))),
+            has_more=bool(data["has_more"])
         )

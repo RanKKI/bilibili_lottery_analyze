@@ -2,8 +2,6 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from itertools import chain
-
 PRIZE_USERS = pd.read_csv("./output/prize_users.csv")
 ALL_USERS = pd.read_csv("./output/all_other_users.csv")
 
