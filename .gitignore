@@ -164,6 +164,7 @@ dmypy.json
 
 # cache
 cache/
+output/
 
 *.ipynb
 
